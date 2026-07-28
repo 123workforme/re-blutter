@@ -83,6 +83,8 @@ constexpr arm64_reg CSREG_DART_THR = ToCapstoneReg(dart::THR);
 constexpr arm64_reg CSREG_DART_PP = ToCapstoneReg(dart::PP);
 #if defined(DART_COMPRESSED_POINTERS)
 constexpr arm64_reg CSREG_DART_HEAP = ToCapstoneReg(dart::HEAP_BITS);
+#else
+constexpr arm64_reg CSREG_DART_HEAP = ARM64_REG_X28;
 #endif
 constexpr arm64_reg CSREG_DART_TMP = ToCapstoneReg(dart::TMP);
 constexpr arm64_reg CSREG_DART_TMP2 = ToCapstoneReg(dart::TMP2);

@@ -60,7 +60,7 @@ if (${TARGET_OS} STREQUAL "android")
 	# Note: DART_COMPRESSED_POINTERS should be from the binary
 	#set(dart_pointers "DART_COMPRESSED_POINTERS")
 else()
-	set(target_os "DART_TARGET_OS_MACOS_IOS")
+	set(target_os "DART_TARGET_OS_MACOS_IOS;DART_TARGET_OS_MACOS")
 endif()
 # TARGET_ARCH_ARM64 or TARGET_ARCH_X64
 if (${TARGET_ARCH} STREQUAL "arm64")
@@ -81,7 +81,9 @@ set(defines ${target_arch} ${target_os}
 	PRODUCT U_USING_ICU_NAMESPACE=0
 	_HAS_EXCEPTIONS=0 DART_TARGET_OS_WINDOWS_UWP
 )
-# Dart header can detect DART_HOST_OS_xxx value
+if (APPLE)
+	list(APPEND defines DART_HOST_OS_MACOS)
+endif()
 
 if (MSVC)
 	# remove compiler exception handler options

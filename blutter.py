@@ -77,6 +77,24 @@ def extract_libs_from_apk(apk_file: str, out_dir: str):
         flutter_file = os.path.join(out_dir, flutter_info.filename)
         return app_file, flutter_file
 
+def extract_libs_from_ipa(ipa_file: str, out_dir: str):
+    with zipfile.ZipFile(ipa_file, "r") as zf:
+        names = zf.namelist()
+
+        def find_one(suffix: str):
+            matches = [n for n in names if n.endswith(suffix) and '/Frameworks/' in n]
+            return matches[0] if matches else None
+
+        app_name = find_one('/App.framework/App')
+        flutter_name = find_one('/Flutter.framework/Flutter')
+        if app_name is None or flutter_name is None:
+            sys.exit("Cannot find App.framework/App or Flutter.framework/Flutter in the IPA")
+
+        zf.extract(app_name, out_dir)
+        zf.extract(flutter_name, out_dir)
+
+        return os.path.join(out_dir, app_name), os.path.join(out_dir, flutter_name)
+
 def find_compat_macro(dart_version: str, no_analysis: bool):
     macros = []
     include_path = os.path.join(PKG_INC_DIR, f'dartvm{dart_version}')
@@ -225,6 +243,10 @@ def main(indir: str, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no
         with tempfile.TemporaryDirectory() as tmp_dir:
             libapp_file, libflutter_file = extract_libs_from_apk(indir, tmp_dir)
             main2(libapp_file, libflutter_file, outdir, rebuild_blutter, create_vs_sln, no_analysis)
+    elif indir.endswith(".ipa"):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            libapp_file, libflutter_file = extract_libs_from_ipa(indir, tmp_dir)
+            main2(libapp_file, libflutter_file, outdir, rebuild_blutter, create_vs_sln, no_analysis)
     else:
         libapp_file, libflutter_file = find_lib_files(indir)
         main2(libapp_file, libflutter_file, outdir, rebuild_blutter, create_vs_sln, no_analysis)
@@ -234,8 +256,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog='B(l)utter',
         description='Reversing a flutter application tool')
-    # TODO: accept ipa
-    parser.add_argument('indir', help='An apk or a directory that contains both libapp.so and libflutter.so')
+    parser.add_argument('indir', help='An apk/ipa file, or a directory that contains both libapp (libapp.so/App) and libflutter (libflutter.so/Flutter)')
     parser.add_argument('outdir', help='An output directory')
     parser.add_argument('--rebuild', action='store_true', default=False, help='Force rebuild the Blutter executable')
     parser.add_argument('--vs-sln', action='store_true', default=False, help='Generate Visual Studio solution at <outdir>')

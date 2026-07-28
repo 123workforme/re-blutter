@@ -3,12 +3,14 @@
 PRAGMA_WARNING(push, 0)
 #include <platform/elf.h>
 #if defined(DART_TARGET_OS_MACOS)
-// old dart version has no mach_o.h
-//#include <platform/mach_o.h>
+#include <mach-o/loader.h>
+#include <mach-o/nlist.h>
 #endif
 PRAGMA_WARNING(pop)
 #include <algorithm>
 #include <stdexcept>
+#include <vector>
+#include <string>
 #if defined(_WIN32) || defined(WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -150,42 +152,113 @@ LibAppInfo ElfHelper::findSnapshots(const uint8_t* elf)
 LibAppInfo ElfHelper::MapLibAppSo(const char* path)
 {
 	void* lib = load_map_file(path);
-	// quick and dirty parsing ELF to get symbol addresses
-	uint8_t* elf = (uint8_t*)(lib);
+	uint8_t* base = (uint8_t*)(lib);
 #if defined(DART_TARGET_OS_MACOS)
-	// Note: only new dart version getting snapshots from load command
-	// <=2.17, use EXPORT name
-	// <= v2.18,  load from sub SEGMENT_64, named "__CUSTOM" and section named "__dart_app_snap"
-	// >= 2.19, LC_NOTE command is used
-	auto header = (dart::mach_o::mach_header_64*)lib;
+	auto header = (struct mach_header_64*)lib;
 	switch (header->magic) {
-	case dart::mach_o::MH_MAGIC:
-	case dart::mach_o::MH_CIGAM:
+	case MH_MAGIC:
+	case MH_CIGAM:
 		throw std::invalid_argument("Mach-O: Support only 64 bits");
-	case dart::mach_o::MH_CIGAM_64:
+	case MH_CIGAM_64:
 		throw std::invalid_argument("Mach-O: Expected a host endian header");
-	case dart::mach_o::MH_MAGIC_64:
-		return size >= sizeof(mach_o::mach_header_64);
+	case MH_MAGIC_64:
+		break;
 	default:
 		throw std::invalid_argument("Mach-O: Invalid magic header");
 	}
+
+	const uint8_t* vm_snapshot_data = nullptr;
+	const uint8_t* vm_snapshot_instructions = nullptr;
+	const uint8_t* isolate_snapshot_data = nullptr;
+	const uint8_t* isolate_snapshot_instructions = nullptr;
+
+	struct SegInfo { uint64_t vmaddr; uint64_t vmsize; uint64_t fileoff; };
+	std::vector<SegInfo> segments;
+
+	auto lc = (struct load_command*)(base + sizeof(struct mach_header_64));
+	struct symtab_command* symtab_cmd = nullptr;
+
+	for (uint32_t i = 0; i < header->ncmds; i++) {
+		if (lc->cmd == LC_SEGMENT_64) {
+			auto seg = (struct segment_command_64*)lc;
+			segments.push_back({seg->vmaddr, seg->vmsize, seg->fileoff});
+			auto sec = (struct section_64*)((uint8_t*)seg + sizeof(struct segment_command_64));
+			for (uint32_t j = 0; j < seg->nsects; j++, sec++) {
+				if (strcmp(sec->sectname, "__dart_app_snap") == 0 ||
+				    strcmp(sec->sectname, "__dart_vm_snap") == 0) {
+					auto snap_data = base + sec->offset;
+					auto snap_name = std::string(sec->sectname);
+					if (snap_name.find("vm") != std::string::npos) {
+						vm_snapshot_data = snap_data;
+					} else {
+						isolate_snapshot_data = snap_data;
+					}
+				}
+			}
+		}
+		else if (lc->cmd == LC_SYMTAB) {
+			symtab_cmd = (struct symtab_command*)lc;
+		}
+		lc = (struct load_command*)((uint8_t*)lc + lc->cmdsize);
+	}
+
+	auto va_to_fileoff = [&](uint64_t addr) -> uint64_t {
+		for (auto& s : segments) {
+			if (addr >= s.vmaddr && addr < s.vmaddr + s.vmsize)
+				return addr - s.vmaddr + s.fileoff;
+		}
+		return addr;
+	};
+
+	if (symtab_cmd) {
+		auto syms = (struct nlist_64*)(base + symtab_cmd->symoff);
+		auto strtab = (const char*)(base + symtab_cmd->stroff);
+		for (uint32_t i = 0; i < symtab_cmd->nsyms; i++) {
+			if (syms[i].n_un.n_strx == 0) continue;
+			const char* name = strtab + syms[i].n_un.n_strx;
+			uint64_t foff = va_to_fileoff(syms[i].n_value);
+			if (strcmp(name, kVmSnapshotDataAsmSymbol) == 0) {
+				vm_snapshot_data = base + foff;
+			}
+			else if (strcmp(name, kVmSnapshotInstructionsAsmSymbol) == 0) {
+				vm_snapshot_instructions = base + foff;
+			}
+			else if (strcmp(name, kIsolateSnapshotDataAsmSymbol) == 0) {
+				isolate_snapshot_data = base + foff;
+			}
+			else if (strcmp(name, kIsolateSnapshotInstructionsAsmSymbol) == 0) {
+				isolate_snapshot_instructions = base + foff;
+			}
+		}
+	}
+
+	if (vm_snapshot_data == nullptr)
+		throw std::invalid_argument("Mach-O: Cannot find Dart VM Snapshot Data");
+	if (vm_snapshot_instructions == nullptr)
+		throw std::invalid_argument("Mach-O: Cannot find Dart VM Snapshot Instructions");
+	if (isolate_snapshot_data == nullptr)
+		throw std::invalid_argument("Mach-O: Cannot find Dart Isolate Snapshot Data");
+	if (isolate_snapshot_instructions == nullptr)
+		throw std::invalid_argument("Mach-O: Cannot find Dart Isolate Snapshot Instructions");
+
+	return LibAppInfo{
+		.lib = base,
+		.vm_snapshot_data = vm_snapshot_data,
+		.vm_snapshot_instructions = vm_snapshot_instructions,
+		.isolate_snapshot_data = isolate_snapshot_data,
+		.isolate_snapshot_instructions = isolate_snapshot_instructions,
+	};
 #else
-	const auto* hdr = (ElfHeader*)elf;
+	const auto* hdr = (ElfHeader*)base;
 	const auto* ident = (ElfIdent*)hdr->ident;
 	if (memcmp(ident->ei_magic, "\x7f" "ELF", 4) != 0)
-		throw std::invalid_argument("ELF: Invalid magic header"); // need ELF file
+		throw std::invalid_argument("ELF: Invalid magic header");
 	if (ident->ei_data != 1)
-		throw std::invalid_argument("ELF: Support only little endian"); // expect little-endian
-
-	if (ident->ei_class != ELFCLASS64) { // 1 is 32 bits, 2 is 64 bits
-		throw std::invalid_argument("ELF: Support only 64 bits"); // support only 64 bits
+		throw std::invalid_argument("ELF: Support only little endian");
+	if (ident->ei_class != ELFCLASS64) {
+		throw std::invalid_argument("ELF: Support only 64 bits");
 	}
-	// expected e_machine
-	//   3: x86, 0x28: ARM
-	//   0x3e: x86-64, 0xB7: Aarch64
-	// EM_386, EM_ARM, EM_X86_64, EM_AARCH64
-	//hdr->e_machine;
-#endif
 
-	return findSnapshots(elf);
+	return findSnapshots(base);
+#endif
 }

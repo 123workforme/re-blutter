@@ -1,23 +1,20 @@
-# B(l)utter
-Flutter Mobile Application Reverse Engineering Tool by Compiling Dart AOT Runtime
+# re-Blutter
+Flutter Mobile Application Reverse Engineering Tool by Compiling Dart AOT Runtime.
 
-Currently the application supports only Android libapp.so (arm64 only).
-Also the application is currently work only against recent Dart versions.
+This is a fork of [Blutter](https://github.com/worawit/blutter) that extends it with
+iOS support: it reads Mach-O binaries (`App` / `Flutter` frameworks) and accepts `.ipa`
+files directly, in addition to the original Android `libapp.so` / `.apk` path.
 
-For high priority missing features, see [TODO](#todo)
-
+Supported inputs:
+- Android: `libapp.so` + `libflutter.so` (ELF, arm64), or an `.apk`
+- iOS: `App.framework/App` + `Flutter.framework/Flutter` (Mach-O, arm64), or an `.ipa`
 
 ## Environment Setup
-This application uses C++20 Formatting library. It requires very recent C++ compiler such as g++>=13, Clang>=16.
-
-I recommend using Linux OS (only tested on Deiban sid/trixie) because it is easy to setup.
+This application uses the C++20 Formatting library. It requires a recent C++ compiler such as g++>=13 or Clang>=16.
 
 ### Debian Unstable (gcc 13)
-**_NOTE:_**
-Use ONLY Debian/Ubuntu version that provides gcc>=13 from its own main repository.
-Using ported gcc to old Debian/Ubuntu version does not work.
+Use ONLY a Debian/Ubuntu version that provides gcc>=13 from its own main repository. A ported gcc on an older release will not work.
 
-- Install build tools and depenencies
 ```
 apt install python3-pyelftools python3-requests git cmake ninja-build \
     build-essential pkg-config libicu-dev libcapstone-dev
@@ -25,7 +22,7 @@ apt install python3-pyelftools python3-requests git cmake ninja-build \
 
 ### Windows
 - Install git and python 3
-- Install latest Visual Studio with "Desktop development with C++" and "C++ CMake tools"
+- Install Visual Studio with "Desktop development with C++" and "C++ CMake tools"
 - Install required libraries (libcapstone and libicu4c)
 ```
 python scripts\init_env_win.py
@@ -33,35 +30,44 @@ python scripts\init_env_win.py
 - Start "x64 Native Tools Command Prompt"
 
 ### macOS Sequoia
-- Install XCode
-- Install required tools
+- Install Xcode
 ```
 brew install cmake ninja pkg-config icu4c capstone
 pip3 install pyelftools requests
 ```
 
 ### macOS Ventura and Sonoma (clang 16)
-- Install XCode
-- Install clang 16 and required tools
+- Install Xcode
 ```
 brew install llvm@16 cmake ninja pkg-config icu4c capstone
 pip3 install pyelftools requests
 ```
 
 ## Usage
-Extract "lib" directory from apk file
+
+Android, from an extracted `lib` directory:
 ```
 python3 blutter.py path/to/app/lib/arm64-v8a out_dir
 ```
-The blutter.py will automatically detect the Dart version from the flutter engine and call executable of blutter to get the information from libapp.so.
 
-If the blutter executable for required Dart version does not exists, the script will automatically checkout Dart source code and compiling it.
+Android, directly from an apk:
+```
+python3 blutter.py path/to/app.apk out_dir
+```
 
-## Update
-You can use ```git pull``` to update and run blutter.py with ```--rebuild``` option to force rebuild the executable
+iOS, directly from an ipa:
 ```
-python3 blutter.py path/to/app/lib/arm64-v8a out_dir --rebuild
+python3 blutter.py path/to/app.ipa out_dir
 ```
+
+iOS, from a directory containing `App` and `Flutter`:
+```
+python3 blutter.py path/to/extracted_frameworks out_dir
+```
+
+The Dart version, snapshot hash and target (os/arch) are detected automatically from the
+binaries. If the matching blutter executable for that Dart version does not exist yet, the
+script checks out the Dart source and builds it.
 
 ## Output files
 - **asm/\*** libapp assemblies with symbols
@@ -69,30 +75,25 @@ python3 blutter.py path/to/app/lib/arm64-v8a out_dir --rebuild
 - **objs.txt** complete (nested) dump of Object from Object Pool
 - **pp.txt** all Dart objects in Object Pool
 
-
 ## Directories
-- **bin** contains blutter executables for each Dart version in "blutter_dartvm\<ver\>\_\<os\>\_\<arch\>" format
-- **blutter** contains source code. need building against Dart VM library
-- **build** contains building projects which can be deleted after finishing the build process
-- **dartsdk** contains checkout of Dart Runtime which can be deleted after finishing the build process
-- **external** contains 3rd party libraries for Windows only
-- **packages** contains the static libraries of Dart Runtime
-- **scripts** contains python scripts for getting/building Dart
+- **bin** blutter executables per Dart version, named `blutter_dartvm<ver>_<os>_<arch>`
+- **blutter** source code, built against the Dart VM library
+- **build** build projects (safe to delete after a build finishes)
+- **dartsdk** Dart Runtime checkout (safe to delete after a build finishes)
+- **external** 3rd party libraries, Windows only
+- **packages** static libraries of the Dart Runtime
+- **scripts** python scripts for fetching/building Dart
 
-
-## Generating Visual Studio Solution for Development
-I use Visual Studio to delevlop Blutter on Windows. ```--vs-sln``` options can be used to generate a Visual Studio solution.
+## Generating a Visual Studio Solution for Development
 ```
 python blutter.py path\to\lib\arm64-v8a build\vs --vs-sln
 ```
 
 ## TODO
-- More code analysis
-  - Function arguments and return type
-  - Some psuedo code for code pattern
-- Generate better Frida script
-  - More internal classes
-  - Object modification
-- Obfuscated app (still missing many functions)
-- Reading iOS binary
-- Input as apk or ipa
+- More code analysis (function arguments and return types, pseudo code for common patterns)
+- Better Frida script generation (more internal classes, object modification)
+- Obfuscated app support
+
+## Credits
+Original Blutter by [@worawit](https://github.com/worawit/blutter), licensed under MIT.
+See [LICENSE](LICENSE).

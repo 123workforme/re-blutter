@@ -10,9 +10,32 @@
 
 void FridaWriter::Create(const char* filename)
 {
-	std::filesystem::copy_file(FRIDA_TEMPLATE_DIR "/frida.template.js", filename, std::filesystem::copy_options::overwrite_existing);
+	std::ofstream of(filename, std::ios_base::trunc);
 
-	std::ofstream of(filename, std::ios_base::app);
+#if defined(DART_COMPRESSED_POINTERS)
+	const bool pointerCompressed = true;
+#else
+	const bool pointerCompressed = false;
+#endif
+#if defined(DART_TARGET_OS_MACOS_IOS)
+	const char* libappModuleName = "App";
+#else
+	const char* libappModuleName = "libapp.so";
+#endif
+
+	of << "const PointerCompressedEnabled = " << (pointerCompressed ? "true" : "false") << ";\n";
+	of << "const CompressedWordSize = " << dart::kCompressedWordSize << ";\n";
+	of << "const WordSize = " << sizeof(void*) << ";\n";
+	of << "const LibappModuleName = \"" << libappModuleName << "\";\n";
+	of << "const HeapAddressReg = 'x28';\n";
+	of << "const NullReg = 'x22';\n";
+	of << "const StackReg = 'x15';\n";
+
+	{
+		std::ifstream tmpl(FRIDA_TEMPLATE_DIR "/frida.template.js");
+		of << tmpl.rdbuf();
+	}
+	of << '\n';
 
 	of << "const ClassIdTagPos = " << kUntaggedObjectClassIdTagPos << ";\n";
 	of << std::format("const ClassIdTagMask = {:#x};\n", (1 << dart::UntaggedObject::kClassIdTagSize) - 1);

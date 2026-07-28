@@ -17,10 +17,10 @@ function onLibappLoaded() {
 
 function tryLoadLibapp() {
     try {
-        libapp = Module.findBaseAddress('libapp.so');
+        libapp = Module.findBaseAddress(LibappModuleName);
     } catch (e) {
         if (e instanceof TypeError && e.message === "not a function") {
-            libapp = Process.findModuleByName('libapp.so');
+            libapp = Process.findModuleByName(LibappModuleName);
             if (libapp != null) {
                 libapp = libapp.base;
             }
@@ -34,15 +34,6 @@ function tryLoadLibapp() {
         onLibappLoaded();
 }
 tryLoadLibapp();
-
-const PointerCompressedEnabled = true;
-const CompressedWordSize = 4;
-const HeapAddressReg = 'x28';
-const NullReg = 'x22';
-const StackReg = 'x15';
-
-if (!PointerCompressedEnabled)
-    console.error("now support only compressed pointer");
 
 let HeapAddress = 0;
 // this function must be called at least on first interception of Dart function
@@ -271,7 +262,7 @@ function getInstanceValue(ptr, cls, scls, depthLeft = MaxDepth) {
                 val = ptr.add(offset).readDouble();
                 values[`off_${offset.toString(16)}`] = val;
             }
-            offset += CompressedWordSize * 2;
+            offset += WordSize;
         }
         else {
             // object
